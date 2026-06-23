@@ -17,4 +17,22 @@ Hệ thống sử dụng các thuật toán xác suất (**Naive Bayes** và **M
 ### 1. Cài đặt thư viện
 Đảm bảo bạn đã cài đặt Python 3.9+, sau đó chạy lệnh sau trong terminal:
 ```bash
+# Tạo môi trường ảo trên Windows
+```bash
+python -m venv venv
+
+```bash
+.\venv\Scripts\Activate.ps1
+
+```bash
 pip install -r requirements.txt
+
+```bash
+pip uninstall numpy
+pip install "numpy<2"
+
+```bash
+python train.py
+
+```bash
+streamlit run app.py
