@@ -1,0 +1,11 @@
+streamlit
+python-docx
+pypdf
+pgmpy
+pandas
+scikit-learn
+joblib
+numpy
+requests
+beautifulsoup4
+matplotlib
