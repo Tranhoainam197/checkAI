@@ -2,10 +2,10 @@ import os
 import joblib
 import numpy as np
 import pandas as pd
-from pgmpy.models import DiscreteBayesianNetwork
+from pgmpy.models import BayesianNetwork
 from pgmpy.estimators import BayesianEstimator
 from pgmpy.inference import VariableElimination
-
+from pgmpy.estimators import MaximumLikelihoodEstimator
 ARTIFACTS_DIR = "artifacts"
 N_BINS = 5
 FEATURES = ['length', 'word_count', 'avg_word_len']
@@ -28,20 +28,21 @@ def discretize(df: pd.DataFrame, bin_edges: dict = None):
 
 
 def train_bayesian_network(df_struct: pd.DataFrame):
-    """
-    Huấn luyện Bayesian Network với cấu trúc hình sao:
-    length, word_count, avg_word_len → label
-    """
     df_disc, bin_edges = discretize(df_struct[FEATURES + ['label']])
     df_disc['label'] = df_disc['label'].astype(int)
 
+    # 1. Định nghĩa cấu trúc
     edges = [(feat, 'label') for feat in FEATURES]
-    model = DiscreteBayesianNetwork(edges)
-    model.fit(df_disc, estimator=BayesianEstimator, prior_type='BDeu', equivalent_sample_size=10)
+    model = BayesianNetwork(edges) # Đã đổi tên lớp
+    
+    # 2. Huấn luyện tham số bằng MaximumLikelihoodEstimator
+    # Đây là cách chuẩn cho pgmpy bản mới
+    model.fit(df_disc, estimator=MaximumLikelihoodEstimator)
 
+    # 3. Lưu model
     joblib.dump(model, os.path.join(ARTIFACTS_DIR, 'model_bn.pkl'))
     joblib.dump({'bin_edges': bin_edges}, os.path.join(ARTIFACTS_DIR, 'bn_metadata.pkl'))
-    print("   Bayesian Network đã lưu.")
+    print("   Bayesian Network đã lưu thành công.")
 
 
 def predict_bayesian_network(features: dict) -> float:

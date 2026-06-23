@@ -1,5 +1,7 @@
 import streamlit as st
 import requests
+import pandas as pd
+import joblib
 from bs4 import BeautifulSoup
 import docx
 import pypdf
