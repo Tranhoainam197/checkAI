@@ -1,4 +1,3 @@
-# predictor.py
 import joblib
 import numpy as np
 from data_utils import clean_text, repair_mojibake, extract_structural_features
@@ -6,6 +5,15 @@ from bayesian_network import predict_bayesian_network
 
 CHUNK_SIZE = 900
 CHUNK_OVERLAP = 140
+
+# Load model một lần duy nhất khi import module — tránh load lại mỗi lần predict
+_nb_model = None
+
+def _get_nb_model():
+    global _nb_model
+    if _nb_model is None:
+        _nb_model = joblib.load("artifacts/model_nb.pkl")
+    return _nb_model
 
 
 def chunk_text(text: str) -> list[str]:
@@ -54,7 +62,7 @@ def predict_text(text: str, bn_available: bool = True) -> dict:
     """
     Hàm dự đoán chính. Nhận văn bản thô, trả về dict kết quả.
     """
-    nb_model = joblib.load("artifacts/model_nb.pkl")
+    nb_model = _get_nb_model()
 
     text = repair_mojibake(text)
     text = clean_text(text)

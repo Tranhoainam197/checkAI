@@ -7,7 +7,7 @@ import docx
 import pypdf
 import io
 import os
-
+import pandas as pd
 from predictor import predict_text, predict_line_by_line
 from report_utils import get_text_stats, evaluate_on_test_set
 
@@ -120,5 +120,3 @@ if analyze_btn and text_input.strip():
 elif analyze_btn:
     st.warning("Vui lòng nhập văn bản trước khi phân tích.")
 
-# import pandas thiếu ở trên — thêm vào đầu file
-import pandas as pd

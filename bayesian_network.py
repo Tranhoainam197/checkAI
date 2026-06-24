@@ -5,7 +5,7 @@ import pandas as pd
 from pgmpy.models import BayesianNetwork
 from pgmpy.estimators import BayesianEstimator
 from pgmpy.inference import VariableElimination
-from pgmpy.estimators import MaximumLikelihoodEstimator
+
 ARTIFACTS_DIR = "artifacts"
 N_BINS = 5
 FEATURES = ['length', 'word_count', 'avg_word_len']
@@ -23,23 +23,35 @@ def discretize(df: pd.DataFrame, bin_edges: dict = None):
             _, edges = pd.cut(df[feat], bins=N_BINS, retbins=True, labels=False, duplicates='drop')
             bin_edges[feat] = edges
     for feat in FEATURES:
-        df[feat] = pd.cut(df[feat], bins=bin_edges[feat], labels=False, include_lowest=True).astype('Int64').fillna(0)
+        df[feat] = pd.cut(
+            df[feat], bins=bin_edges[feat], labels=False,
+            include_lowest=True
+        ).astype('Int64').fillna(0)
     return df, bin_edges
 
 
 def train_bayesian_network(df_struct: pd.DataFrame):
+    """
+    Huấn luyện Bayesian Network với cấu trúc Star:
+    length → label, word_count → label, avg_word_len → label
+    Dùng BayesianEstimator với prior BDeu (equivalent_sample_size=10).
+    """
     df_disc, bin_edges = discretize(df_struct[FEATURES + ['label']])
     df_disc['label'] = df_disc['label'].astype(int)
 
-    # 1. Định nghĩa cấu trúc
+    # Định nghĩa cấu trúc Star Network
     edges = [(feat, 'label') for feat in FEATURES]
-    model = BayesianNetwork(edges) # Đã đổi tên lớp
-    
-    # 2. Huấn luyện tham số bằng MaximumLikelihoodEstimator
-    # Đây là cách chuẩn cho pgmpy bản mới
-    model.fit(df_disc, estimator=MaximumLikelihoodEstimator)
+    model = BayesianNetwork(edges)
 
-    # 3. Lưu model
+    # Huấn luyện tham số bằng BayesianEstimator với prior BDeu
+    model.fit(
+        df_disc,
+        estimator=BayesianEstimator,
+        prior_type='BDeu',
+        equivalent_sample_size=10
+    )
+
+    # Lưu model và metadata
     joblib.dump(model, os.path.join(ARTIFACTS_DIR, 'model_bn.pkl'))
     joblib.dump({'bin_edges': bin_edges}, os.path.join(ARTIFACTS_DIR, 'bn_metadata.pkl'))
     print("   Bayesian Network đã lưu thành công.")
