@@ -1,122 +1,181 @@
 import streamlit as st
 import requests
 import pandas as pd
-import joblib
+import os
+import io
 from bs4 import BeautifulSoup
 import docx
 import pypdf
-import io
-import os
-import pandas as pd
 from predictor import predict_text, predict_line_by_line
 from report_utils import get_text_stats, evaluate_on_test_set
 
-st.set_page_config(page_title="CheckAI", page_icon="🤖", layout="wide")
+st.set_page_config(page_title="AI Text Detector", page_icon="🔍", layout="wide")
 
 ARTIFACTS_EXIST = os.path.exists("artifacts/model_nb.pkl")
 
+# ── Helpers ──────────────────────────────────────────────
 
-def extract_text_from_url(url: str) -> str:
+def extract_text_from_url(url: str) -> tuple[str, str | None]:
+    """Trả về (text, error_message). error_message=None nếu thành công."""
     try:
-        resp = requests.get(url, timeout=10)
+        resp = requests.get(url, timeout=10, headers={'User-Agent': 'Mozilla/5.0'})
+        resp.raise_for_status()
         soup = BeautifulSoup(resp.text, 'html.parser')
         paragraphs = soup.find_all('p')
-        return ' '.join(p.get_text() for p in paragraphs)
+        text = ' '.join(p.get_text() for p in paragraphs).strip()
+        if not text:
+            return "", "Không tìm thấy nội dung văn bản (thẻ <p>) tại URL này."
+        return text, None
     except Exception as e:
-        return f"[Lỗi khi tải URL: {e}]"
+        return "", f"Lỗi khi tải URL: {e}"
 
 
-def extract_text_from_file(uploaded_file) -> str:
+def extract_text_from_file(uploaded_file) -> tuple[str, str | None]:
     name = uploaded_file.name.lower()
-    if name.endswith('.txt'):
-        return uploaded_file.read().decode('utf-8', errors='ignore')
-    elif name.endswith('.docx'):
-        doc = docx.Document(io.BytesIO(uploaded_file.read()))
-        return '\n'.join(p.text for p in doc.paragraphs)
-    elif name.endswith('.pdf'):
-        reader = pypdf.PdfReader(io.BytesIO(uploaded_file.read()))
-        return '\n'.join(page.extract_text() or '' for page in reader.pages)
-    return ""
+    try:
+        if name.endswith('.txt'):
+            return uploaded_file.read().decode('utf-8', errors='ignore'), None
+        elif name.endswith('.docx'):
+            doc = docx.Document(io.BytesIO(uploaded_file.read()))
+            return '\n'.join(p.text for p in doc.paragraphs), None
+        elif name.endswith('.pdf'):
+            reader = pypdf.PdfReader(io.BytesIO(uploaded_file.read()))
+            return '\n'.join(page.extract_text() or '' for page in reader.pages), None
+        return "", "Định dạng file không được hỗ trợ."
+    except Exception as e:
+        return "", f"Lỗi khi đọc file: {e}"
 
+
+# ── CSS ──────────────────────────────────────────────────
+st.markdown("""
+<style>
+    .result-card {
+        padding: 20px 24px; border-radius: 12px; margin: 16px 0;
+        border-left: 6px solid var(--accent-color);
+        background: var(--accent-color)15;
+    }
+    .result-title { margin: 0; font-size: 1.5rem; }
+    .result-sub { margin: 6px 0 0 0; font-size: 1rem; opacity: 0.85; }
+    .source-label { font-weight: 600; font-size: 0.95rem; margin-bottom: 4px; }
+</style>
+""", unsafe_allow_html=True)
 
 # ── Sidebar ──────────────────────────────────────────────
-st.sidebar.title("⚙️ Tùy chọn")
-
-url_input = st.sidebar.text_input("🔗 Nhập URL bài viết")
-uploaded_file = st.sidebar.file_uploader("📁 Tải file (.txt, .docx, .pdf)",
-                                          type=['txt', 'docx', 'pdf'])
-line_by_line = st.sidebar.toggle("🔍 Phân tích từng dòng", value=False)
-
-if st.sidebar.button("📊 Xem báo cáo mô hình") and ARTIFACTS_EXIST:
-    cm = evaluate_on_test_set()
-    if os.path.exists("artifacts/confusion_matrix.png"):
-        st.sidebar.image("artifacts/confusion_matrix.png")
-
-# ── Main ─────────────────────────────────────────────────
-st.title("🤖 CheckAI — Phát hiện văn bản do AI tạo ra")
-st.caption("Dựa trên Naive Bayes + Bayesian Network | Hỗ trợ Tiếng Anh & Tiếng Việt")
-
-# Xác định nguồn văn bản
-prefilled = ""
-if url_input:
-    prefilled = extract_text_from_url(url_input)
-elif uploaded_file:
-    prefilled = extract_text_from_file(uploaded_file)
-
-text_input = st.text_area("✏️ Nhập hoặc dán văn bản cần kiểm tra",
-                           value=prefilled, height=250,
-                           placeholder="Dán văn bản vào đây...")
-
-analyze_btn = st.button("🚀 Phân tích", type="primary", disabled=not ARTIFACTS_EXIST)
-
-if not ARTIFACTS_EXIST:
-    st.warning("⚠️ Chưa có model. Hãy chạy `python train.py` trước.")
-
-# ── Kết quả ──────────────────────────────────────────────
-if analyze_btn and text_input.strip():
-    with st.spinner("Đang phân tích..."):
-        result = predict_text(text_input)
-
-    # Result card
-    is_ai = result['label'] == "AI Generated"
-    color = "#ff4b4b" if is_ai else "#21c354"
-    icon = "🤖" if is_ai else "✍️"
-
-    st.markdown(f"""
-    <div style="background:{color}22; border-left: 5px solid {color};
-                padding: 16px; border-radius: 8px; margin: 12px 0;">
-        <h2 style="color:{color}; margin:0">{icon} {result['label']}</h2>
-        <p style="margin:4px 0; font-size:18px;">
-            Độ tin cậy: <strong>{result['confidence']}%</strong>
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # Tín hiệu bổ sung
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Naive Bayes", f"{result['nb_score']}%")
-    col2.metric("Bayesian Network", f"{result['bn_score']}%")
-    col3.metric("Heuristic", f"{result['heuristic_score']}%")
-
+with st.sidebar:
+    st.title("🔍 AI Text Detector")
+    st.caption("Naive Bayes · Bayesian Network · Heuristic")
     st.divider()
 
-    tab1, tab2 = st.tabs(["📋 Tổng quan", "📄 Từng dòng"])
+    st.subheader("📥 Nguồn văn bản")
+    source = st.radio(
+        "Chọn cách nhập văn bản",
+        options=["✏️ Nhập văn bản", "📁 Tải lên tệp tin", "🔗 Nhập URL bài viết"],
+        label_visibility="collapsed",
+    )
 
-    with tab1:
-        stats = get_text_stats(text_input)
-        st.table(pd.Series(stats).rename("Giá trị"))
+    raw_text = ""
+    input_error = None
 
-    with tab2:
-        if line_by_line:
-            with st.spinner("Đang phân tích từng dòng..."):
-                line_results = predict_line_by_line(text_input)
-            import pandas as pd
-            df_lines = pd.DataFrame(line_results)[['line', 'label', 'confidence']]
-            df_lines.columns = ['Nội dung', 'Nhãn', 'Độ tin cậy (%)']
-            st.dataframe(df_lines, use_container_width=True)
-        else:
-            st.info("Bật 'Phân tích từng dòng' ở sidebar để xem chi tiết.")
+    if source == "✏️ Nhập văn bản":
+        st.markdown('<p class="source-label">Dán hoặc nhập văn bản cần kiểm tra</p>', unsafe_allow_html=True)
+        raw_text = st.text_area(
+            "Văn bản", height=220, label_visibility="collapsed",
+            placeholder="Dán văn bản vào đây..."
+        )
 
-elif analyze_btn:
-    st.warning("Vui lòng nhập văn bản trước khi phân tích.")
+    elif source == "📁 Tải lên tệp tin":
+        st.markdown('<p class="source-label">Hỗ trợ .txt, .docx, .pdf</p>', unsafe_allow_html=True)
+        uploaded_file = st.file_uploader(
+            "Tệp tin", type=['txt', 'docx', 'pdf'], label_visibility="collapsed"
+        )
+        if uploaded_file:
+            raw_text, input_error = extract_text_from_file(uploaded_file)
 
+    else:  # Nhập URL
+        st.markdown('<p class="source-label">Đường dẫn bài viết</p>', unsafe_allow_html=True)
+        url_input = st.text_input(
+            "URL", label_visibility="collapsed", placeholder="https://..."
+        )
+        if url_input:
+            raw_text, input_error = extract_text_from_url(url_input)
+
+    st.divider()
+    line_by_line = st.toggle("🔎 Phân tích từng dòng", value=False)
+
+    st.divider()
+    st.subheader("📊 Báo cáo mô hình")
+    show_report = st.button("Xem báo cáo đánh giá", disabled=not ARTIFACTS_EXIST,
+                             use_container_width=True)
+
+    if not ARTIFACTS_EXIST:
+        st.warning("Chưa có model đã huấn luyện. Hãy chạy `python train.py` trước.")
+
+# ── Main ─────────────────────────────────────────────────
+st.title("🔍 Hệ Thống Kiểm Tra Văn Bản AI")
+st.caption("Phát hiện văn bản do AI sinh ra hay do con người viết — hỗ trợ Tiếng Anh & Tiếng Việt")
+
+if input_error:
+    st.warning(f"⚠️ {input_error}")
+
+if source != "✏️ Nhập văn bản" and raw_text:
+    with st.expander("📄 Xem nội dung đã trích xuất", expanded=False):
+        st.text_area("Nội dung", value=raw_text, height=150, disabled=True,
+                      label_visibility="collapsed")
+
+analyze_btn = st.button("🚀 Phân tích văn bản", type="primary",
+                         disabled=not ARTIFACTS_EXIST)
+
+# ── Báo cáo mô hình ──────────────────────────────────────
+if show_report:
+    with st.spinner("Đang đánh giá hệ thống trên tập test..."):
+        cm = evaluate_on_test_set()
+    if cm is not None and os.path.exists("artifacts/confusion_matrix.png"):
+        st.subheader("📊 Confusion Matrix — Hệ thống kết hợp")
+        st.image("artifacts/confusion_matrix.png", width=400)
+
+# ── Kết quả phân tích ────────────────────────────────────
+if analyze_btn:
+    if not raw_text.strip():
+        st.warning("⚠️ Vui lòng nhập hoặc chọn văn bản trước khi phân tích.")
+    else:
+        with st.spinner("Đang phân tích..."):
+            result = predict_text(raw_text)
+
+        is_ai = result['label'] == "AI Generated"
+        accent = "#ff4b4b" if is_ai else "#21c354"
+        icon = "🤖" if is_ai else "🧑"
+
+        st.markdown(f"""
+        <div class="result-card" style="--accent-color:{accent}; border-left-color:{accent}; background:{accent}1a;">
+            <h2 class="result-title" style="color:{accent}">{icon} {result['label']}</h2>
+            <p class="result-sub">Độ tin cậy: <strong>{result['confidence']}%</strong></p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Naive Bayes", f"{result['nb_score']}%", help="Xác suất AI dựa trên nội dung (TF-IDF n-gram)")
+        col2.metric("Bayesian Network", f"{result['bn_score']}%", help="Xác suất AI dựa trên cấu trúc văn bản")
+        col3.metric("Heuristic", f"{result['heuristic_score']}%", help="Tín hiệu bề mặt: độ đều câu, dấu câu, chữ hoa")
+
+        st.divider()
+        tab1, tab2 = st.tabs(["📋 Thống kê văn bản", "📄 Phân tích từng dòng"])
+
+        with tab1:
+            stats = get_text_stats(raw_text)
+            st.table(pd.Series(stats).rename("Giá trị"))
+
+        with tab2:
+            if line_by_line:
+                with st.spinner("Đang phân tích từng dòng..."):
+                    line_results = predict_line_by_line(raw_text)
+                if line_results:
+                    df_lines = pd.DataFrame(line_results)[['line', 'label', 'confidence']]
+                    df_lines.columns = ['Nội dung', 'Nhãn', 'Độ tin cậy (%)']
+                    st.dataframe(df_lines, use_container_width=True, hide_index=True)
+                else:
+                    st.info("Không có dòng nào đủ dài (>20 ký tự) để phân tích riêng.")
+            else:
+                st.info("Bật 'Phân tích từng dòng' ở sidebar để xem chi tiết theo từng dòng.")
+
+elif not raw_text.strip() and ARTIFACTS_EXIST:
+    st.info("👈 Chọn nguồn văn bản ở sidebar, sau đó nhấn **Phân tích văn bản**.")

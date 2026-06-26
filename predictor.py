@@ -6,8 +6,9 @@ from bayesian_network import predict_bayesian_network
 CHUNK_SIZE = 900
 CHUNK_OVERLAP = 140
 
-# Load model một lần duy nhất khi import module — tránh load lại mỗi lần predict
 _nb_model = None
+_meta_model = None
+
 
 def _get_nb_model():
     global _nb_model
@@ -16,15 +17,37 @@ def _get_nb_model():
     return _nb_model
 
 
+def _get_meta_model():
+    """Meta-model (Logistic Regression) học trọng số kết hợp NB+BN+Heuristic
+    từ dữ liệu thật, thay cho công thức cộng tay. Nếu chưa huấn luyện (file
+    chưa tồn tại), trả về None — predict_text sẽ tự fallback dùng NB làm chính."""
+    global _meta_model
+    if _meta_model is None:
+        try:
+            _meta_model = joblib.load("artifacts/meta_model.pkl")
+        except FileNotFoundError:
+            _meta_model = False  # đánh dấu đã thử và không có, tránh load lại mỗi lần
+    return _meta_model or None
+
+
 def chunk_text(text: str) -> list[str]:
-    """Chia văn bản dài thành các đoạn nhỏ có overlap."""
+    """Chia văn bản dài thành các đoạn nhỏ có overlap, cắt theo ranh giới từ
+    gần nhất để không làm hỏng n-gram ký tự ở điểm cắt."""
+    if len(text) <= CHUNK_SIZE:
+        return [text]
+
     chunks = []
     start = 0
-    while start < len(text):
-        end = start + CHUNK_SIZE
-        chunks.append(text[start:end])
-        start += CHUNK_SIZE - CHUNK_OVERLAP
-    return chunks if chunks else [text]
+    n = len(text)
+    while start < n:
+        end = min(start + CHUNK_SIZE, n)
+        if end < n:
+            boundary = text.rfind(' ', start, end)
+            if boundary > start:
+                end = boundary
+        chunks.append(text[start:end].strip())
+        start = end - CHUNK_OVERLAP if end - CHUNK_OVERLAP > start else end
+    return [c for c in chunks if c] or [text]
 
 
 def heuristic_score(text: str) -> float:
@@ -37,7 +60,6 @@ def heuristic_score(text: str) -> float:
     if not words:
         return 0.5
 
-    # Câu rất đều nhau về độ dài → AI
     sentences = [s.strip() for s in text.replace('!', '.').replace('?', '.').split('.') if s.strip()]
     if len(sentences) > 2:
         sent_lens = [len(s) for s in sentences]
@@ -45,12 +67,10 @@ def heuristic_score(text: str) -> float:
         if cv < 0.3:
             score += 0.3
 
-    # Tỉ lệ dấu câu thấp → AI
     punct_ratio = sum(1 for c in text if c in '.,;:!?') / max(len(text), 1)
     if punct_ratio < 0.02:
         score += 0.2
 
-    # Tỉ lệ chữ hoa thấp → AI (ít cảm xúc)
     upper_ratio = sum(1 for c in text if c.isupper()) / max(len(text), 1)
     if upper_ratio < 0.01:
         score += 0.1
@@ -60,23 +80,21 @@ def heuristic_score(text: str) -> float:
 
 def predict_text(text: str, bn_available: bool = True) -> dict:
     """
-    Hàm dự đoán chính. Nhận văn bản thô, trả về dict kết quả.
+    Hàm dự đoán chính. Kết hợp NB + BN + Heuristic bằng meta-model
+    (Logistic Regression) đã học trọng số tối ưu từ dữ liệu train.
+    Nếu chưa có meta-model, fallback: dùng NB làm kết quả chính.
     """
     nb_model = _get_nb_model()
+    meta_model = _get_meta_model()
 
     text = repair_mojibake(text)
     text = clean_text(text)
 
-    if len(text) > CHUNK_SIZE:
-        chunks = chunk_text(text)
-    else:
-        chunks = [text]
+    chunks = chunk_text(text)
 
-    # Naive Bayes score (trung bình các chunk)
     nb_probs = nb_model.predict_proba(chunks)[:, 1]
     nb_score = float(np.mean(nb_probs))
 
-    # Bayesian Network score
     bn_score = 0.5
     if bn_available:
         try:
@@ -85,14 +103,14 @@ def predict_text(text: str, bn_available: bool = True) -> dict:
         except Exception:
             bn_available = False
 
-    # Heuristic score
     h_score = heuristic_score(text)
 
-    # Kết hợp theo trọng số
-    if bn_available:
-        combined = (nb_score * 0.80 + h_score) * 0.85 + bn_score * 0.15
+    if meta_model is not None:
+        meta_input = np.array([[nb_score, bn_score if bn_available else 0.5, h_score]])
+        combined = float(meta_model.predict_proba(meta_input)[0, 1])
     else:
-        combined = nb_score * 0.85 + h_score * 0.15
+        # Fallback an toàn: chưa có meta-model -> tin tưởng NB là chính
+        combined = nb_score
 
     label = "AI Generated" if combined >= 0.5 else "Human Written"
     confidence = combined if combined >= 0.5 else 1 - combined
@@ -108,7 +126,8 @@ def predict_text(text: str, bn_available: bool = True) -> dict:
 
 
 def predict_line_by_line(text: str) -> list[dict]:
-    """Phân tích từng dòng văn bản riêng lẻ."""
+    """Phân tích từng dòng văn bản riêng lẻ (không dùng BN vì 1 dòng quá ngắn
+    để ước lượng đặc trưng cấu trúc tin cậy)."""
     lines = [l.strip() for l in text.split('\n') if len(l.strip()) > 20]
     results = []
     for line in lines:

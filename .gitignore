@@ -1,19 +1,32 @@
-# Các file Python cache
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
 
-# Các file môi trường ảo
+# Virtual Environment
 venv/
 env/
+.venv/
+
+# Environment variables
 .env
 
-# Các file dữ liệu/model nặng (thường không nên đẩy lên git)
-artifacts/*.pkl
-artifacts/*.png
-data/*.csv
+# Ignore artifacts
+artifacts/
 
-# Các file hệ thống
+# Ignore all CSV files
+*.csv
+
+# Logs
+*.log
+
+# OS
 .DS_Store
+Thumbs.db
+
+# IDE
 .vscode/
 .idea/
+
+# Jupyter
+.ipynb_checkpoints/
