@@ -9,3 +9,4 @@ numpy<2
 requests
 beautifulsoup4
 matplotlib
+deep-translator
