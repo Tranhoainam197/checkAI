@@ -71,5 +71,6 @@ def predict_bayesian_network(features: dict) -> float:
 
         result = _bn_infer.query(variables=['label'], evidence=evidence, show_progress=False)
         return float(result.values[1])
+    
     except Exception:
         return 0.5

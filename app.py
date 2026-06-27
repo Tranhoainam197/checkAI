@@ -12,6 +12,7 @@ from report_utils import get_text_stats, evaluate_on_test_set
 st.set_page_config(page_title="CheckAI - Hệ Thống", page_icon="🤖", layout="wide")
 ARTIFACTS_EXIST = os.path.exists("artifacts/model_nb.pkl")
 
+
 def extract_text_from_url(url: str) -> str:
     try:
         headers = {'User-Agent': 'Mozilla/5.0'}

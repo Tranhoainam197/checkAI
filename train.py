@@ -77,6 +77,7 @@ def train(path_en: str = "data/AI_vs_Human_Text_Dataset_v2.csv"):
     best_params = tune_naive_bayes(X_train, y_train)
 
     print(" --> Huấn luyện Naive Bayes...")
+    
     final_pipeline = Pipeline([
         ('tfidf', TfidfVectorizer(analyzer='char_wb', ngram_range=best_params['tfidf__ngram_range'], max_features=best_params['tfidf__max_features'])),
         ('clf', MultinomialNB(alpha=best_params['clf__alpha'])),

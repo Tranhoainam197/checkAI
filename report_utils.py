@@ -32,6 +32,7 @@ def evaluate_on_test_set():
 
 def get_text_stats(text: str) -> dict:
     words = text.split()
+    
     sentences = [s.strip() for s in text.replace('!', '.').replace('?', '.').split('.') if s.strip()]
     punct_count = sum(1 for c in text if c in '.,;:!?')
     return {

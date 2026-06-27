@@ -33,6 +33,7 @@ def is_vietnamese(text: str) -> bool:
 
 def heuristic_score(text: str) -> float:
     """Tính điểm heuristic (Dùng Tiếng Anh)."""
+    
     score = 0.0
     words = text.split()
     if not words: return 0.5
