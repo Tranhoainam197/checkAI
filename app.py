@@ -128,7 +128,20 @@ analyze_btn = st.button("🚀 Phân tích văn bản", type="primary",
 # ── Báo cáo mô hình ──────────────────────────────────────
 if show_report:
     with st.spinner("Đang đánh giá hệ thống trên tập test..."):
+        # Capture stdout để hiển thị classification report lên giao diện Streamlit
+        import io as _io
+        import sys as _sys
+        _buf = _io.StringIO()
+        _old_stdout = _sys.stdout
+        _sys.stdout = _buf
         cm = evaluate_on_test_set()
+        _sys.stdout = _old_stdout
+        report_text = _buf.getvalue()
+
+    if report_text:
+        st.subheader("📋 Classification Report")
+        st.code(report_text, language="")
+
     if cm is not None and os.path.exists("artifacts/confusion_matrix.png"):
         st.subheader("📊 Confusion Matrix — Hệ thống kết hợp")
         st.image("artifacts/confusion_matrix.png", width=400)
@@ -142,20 +155,26 @@ if analyze_btn:
             result = predict_text(raw_text)
 
         is_ai = result['label'] == "AI Generated"
+        lang_label = "🇻🇳 Tiếng Việt" if result.get('language') == 'vi' else "🇬🇧 Tiếng Anh"
+        threshold_label = f"Ngưỡng quyết định: {result.get('threshold_used', 0.5)}"
         accent = "#ff4b4b" if is_ai else "#21c354"
         icon = "🤖" if is_ai else "🧑"
 
         st.markdown(f"""
         <div class="result-card" style="--accent-color:{accent}; border-left-color:{accent}; background:{accent}1a;">
             <h2 class="result-title" style="color:{accent}">{icon} {result['label']}</h2>
-            <p class="result-sub">Độ tin cậy: <strong>{result['confidence']}%</strong></p>
+            <p class="result-sub">Độ tin cậy: <strong>{result['confidence']}%</strong>
+            &nbsp;·&nbsp; {lang_label} &nbsp;·&nbsp; {threshold_label}</p>
         </div>
         """, unsafe_allow_html=True)
 
         col1, col2, col3 = st.columns(3)
-        col1.metric("Naive Bayes", f"{result['nb_score']}%", help="Xác suất AI dựa trên nội dung (TF-IDF n-gram)")
-        col2.metric("Bayesian Network", f"{result['bn_score']}%", help="Xác suất AI dựa trên cấu trúc văn bản")
-        col3.metric("Heuristic", f"{result['heuristic_score']}%", help="Tín hiệu bề mặt: độ đều câu, dấu câu, chữ hoa")
+        col1.metric("Naive Bayes", f"{result['nb_score']}%",
+                    help="Xác suất AI dựa trên nội dung (TF-IDF n-gram ký tự)")
+        col2.metric("Bayesian Network", f"{result['bn_score']}%",
+                    help="Xác suất AI dựa trên cấu trúc văn bản (length, word_count, sentence_count, avg_word_len)")
+        col3.metric("Heuristic", f"{result['heuristic_score']}%",
+                    help="Tín hiệu bề mặt: độ đều câu, dấu câu, từ dài, thiếu câu ngắn")
 
         st.divider()
         tab1, tab2 = st.tabs(["📋 Thống kê văn bản", "📄 Phân tích từng dòng"])

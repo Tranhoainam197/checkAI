@@ -8,18 +8,35 @@ from pgmpy.inference import VariableElimination
 
 ARTIFACTS_DIR = "artifacts"
 N_BINS = 5
-FEATURES = ['length', 'word_count', 'avg_word_len']
+FEATURES = ['length', 'word_count', 'avg_word_len', 'sentence_count']
 
 # Cấu trúc mạng phản ánh quan hệ phụ thuộc thật giữa các đặc trưng:
-# length ảnh hưởng word_count (văn bản dài hơn thường nhiều từ hơn),
-# word_count ảnh hưởng avg_word_len (cách diễn đạt), cả ba cùng ảnh hưởng label.
+# length → word_count (văn bản dài hơn thường nhiều từ hơn)
+# word_count → sentence_count (nhiều từ hơn thường nhiều câu hơn)
+# word_count → avg_word_len (cách diễn đạt phụ thuộc độ dài văn bản)
+# Tất cả đặc trưng → label (đều có ảnh hưởng độc lập đến phán đoán AI/Human)
 EDGES = [
     ('length', 'word_count'),
+    ('word_count', 'sentence_count'),
     ('word_count', 'avg_word_len'),
     ('length', 'label'),
     ('word_count', 'label'),
     ('avg_word_len', 'label'),
+    ('sentence_count', 'label'),
 ]
+
+# Cache model và metadata để tránh load từ disk mỗi lần predict
+_model_cache = None
+_metadata_cache = None
+
+
+def _load_model_and_metadata():
+    """Load model và bin_edges từ disk, cache lại để tái sử dụng."""
+    global _model_cache, _metadata_cache
+    if _model_cache is None:
+        _model_cache = joblib.load(os.path.join(ARTIFACTS_DIR, 'model_bn.pkl'))
+        _metadata_cache = joblib.load(os.path.join(ARTIFACTS_DIR, 'bn_metadata.pkl'))
+    return _model_cache, _metadata_cache
 
 
 def discretize(df: pd.DataFrame, bin_edges: dict = None):
@@ -45,9 +62,14 @@ def discretize(df: pd.DataFrame, bin_edges: dict = None):
 def train_bayesian_network(df_struct: pd.DataFrame):
     """
     Huấn luyện Bayesian Network với cấu trúc phản ánh phụ thuộc giữa các đặc trưng
-    cấu trúc văn bản (length, word_count, avg_word_len) và nhãn (label).
+    cấu trúc văn bản (length, word_count, avg_word_len, sentence_count) và nhãn (label).
     Dùng BayesianEstimator với prior BDeu (equivalent_sample_size=10).
+    Xóa cache sau khi train để lần predict tiếp theo load model mới.
     """
+    global _model_cache, _metadata_cache
+    _model_cache = None
+    _metadata_cache = None
+
     df_disc, bin_edges = discretize(df_struct[FEATURES + ['label']])
     df_disc['label'] = df_disc['label'].astype(int)
 
@@ -69,9 +91,9 @@ def predict_bayesian_network(features: dict) -> float:
     Dự đoán xác suất văn bản là AI (label=1) từ đặc trưng cấu trúc,
     bằng suy luận chính xác (Variable Elimination) trên toàn bộ mạng.
     Trả về float trong [0, 1].
+    Model được cache trong bộ nhớ, không load lại từ disk mỗi lần gọi.
     """
-    model = joblib.load(os.path.join(ARTIFACTS_DIR, 'model_bn.pkl'))
-    metadata = joblib.load(os.path.join(ARTIFACTS_DIR, 'bn_metadata.pkl'))
+    model, metadata = _load_model_and_metadata()
     bin_edges = metadata['bin_edges']
 
     evidence = {}
@@ -87,4 +109,4 @@ def predict_bayesian_network(features: dict) -> float:
         result = infer.query(variables=['label'], evidence=evidence, show_progress=False)
         return float(result.values[1])
     except Exception:
-        return 0.5  # fallback nếu suy luận thất bại (ví dụ tổ hợp evidence chưa từng thấy)
+        return 0.5  # fallback nếu suy luận thất bại

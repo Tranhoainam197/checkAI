@@ -14,10 +14,13 @@ def clean_text(text: str) -> str:
 def repair_mojibake(text: str) -> str:
     """
     Sửa lỗi encoding tiếng Việt bị vỡ (mojibake), nếu có.
-    Chỉ áp dụng khi việc decode lại thực sự tạo ra văn bản hợp lệ,
-    tránh làm hỏng văn bản đã sạch.
+    Chỉ áp dụng khi văn bản gốc KHÔNG chứa ký tự Unicode hợp lệ sẵn
+    (tránh làm hỏng văn bản UTF-8 đã đúng).
     """
     if not isinstance(text, str) or not text:
+        return text
+    # Nếu đã có ký tự tiếng Việt hoặc Unicode multibyte hợp lệ → giữ nguyên
+    if any(ord(c) > 127 for c in text):
         return text
     try:
         repaired = text.encode('latin-1').decode('utf-8')
@@ -35,7 +38,7 @@ def expand_vietnamese_samples(df_vi: pd.DataFrame, multiplier: int = 2,
     gọi trên toàn bộ dataset trước khi chia, để tránh rò rỉ dữ liệu (data leakage)
     giữa các bản gần-trùng-nhau của cùng một câu gốc.
 
-    multiplier: số bản augment sinh thêm cho mỗi mẫu gốc (đã có random_state cố định).
+    multiplier: số bản augment sinh thêm cho mỗi mẫu gốc.
     """
     rng = np.random.RandomState(random_state)
     synonyms = {
@@ -70,10 +73,10 @@ def load_and_prepare_data(path_en: str, path_vi: str,
     Đọc, làm sạch và kết hợp dữ liệu tiếng Anh + tiếng Việt.
     Trả về DataFrame với cột: text, label (0=Human, 1=AI).
 
-    Không augment dữ liệu ở đây — augment (nếu cần) phải được gọi sau khi
+    Không augment dữ liệu ở đây — augment phải được gọi sau khi
     train_test_split, chỉ trên phần train, để tránh leakage.
     """
-    # --- Tiếng Anh: AI_Human.csv có cột text_content, label_binary ---
+    # --- Tiếng Anh: AI_Human.csv có cột text, generated ---
     df_en = pd.read_csv(path_en)
     df_en = df_en.rename(columns={'generated': 'label'})[['text', 'label']]
     df_en['text'] = df_en['text'].apply(clean_text)
@@ -106,11 +109,17 @@ def load_and_prepare_data(path_en: str, path_vi: str,
 
 
 def extract_structural_features(text: str) -> dict:
-    """Trích xuất đặc trưng cấu trúc dùng cho Bayesian Network."""
+    """
+    Trích xuất đặc trưng cấu trúc dùng cho Bayesian Network.
+    Bổ sung sentence_count để BN có thêm tín hiệu phân biệt AI/Human
+    (văn bản AI thường có số câu đều và nhiều hơn).
+    """
     text = str(text)
     words = text.split()
+    sentences = [s.strip() for s in re.split(r'[.!?]+', text) if s.strip()]
     return {
         'length': len(text),
         'word_count': len(words),
         'avg_word_len': float(np.mean([len(w) for w in words])) if words else 0.0,
+        'sentence_count': len(sentences),
     }

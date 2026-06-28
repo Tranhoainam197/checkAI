@@ -21,16 +21,19 @@ def cross_validate_pipeline(pipeline, X, y, n_splits=3):
     skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
     scores = []
     for train_idx, val_idx in skf.split(X, y):
-        X_train, X_val = X[train_idx], X[val_idx]
-        y_train, y_val = y[train_idx], y[val_idx]
-        pipeline.fit(X_train, y_train)
+        X_train_cv, X_val = X[train_idx], X[val_idx]
+        y_train_cv, y_val = y[train_idx], y[val_idx]
+        pipeline.fit(X_train_cv, y_train_cv)
         preds = pipeline.predict(X_val)
         scores.append(f1_score(y_val, preds, average='macro'))
     return np.mean(scores), np.std(scores)
 
 
 def tune_naive_bayes(X_train, y_train):
-    """Grid search tìm hyperparameter tốt nhất cho Naive Bayes."""
+    """
+    Grid search tìm hyperparameter tốt nhất cho Naive Bayes.
+    Fix: shuffle ngẫu nhiên trước khi lấy subset để tránh lệch nhãn.
+    """
     param_grid = {
         'tfidf__ngram_range': [(3, 5), (2, 5)],
         'tfidf__max_features': [10000, 15000, 20000],
@@ -39,11 +42,13 @@ def tune_naive_bayes(X_train, y_train):
 
     best_score = -1
     best_params = None
-    best_pipeline = None
     results = []
 
+    # Shuffle trước khi lấy subset để đảm bảo cân bằng nhãn
     limit = min(8000, len(X_train))
-    X_sub, y_sub = X_train[:limit], y_train[:limit]
+    rng = np.random.RandomState(42)
+    idx = rng.choice(len(X_train), size=limit, replace=False)
+    X_sub, y_sub = X_train[idx], y_train[idx]
 
     for params in ParameterGrid(param_grid):
         pipeline = Pipeline([
@@ -56,23 +61,31 @@ def tune_naive_bayes(X_train, y_train):
         results.append({**params, 'cv_f1_mean': round(mean_f1, 4), 'cv_f1_std': round(std_f1, 4)})
 
         if mean_f1 > best_score:
-            best_score, best_params, best_pipeline = mean_f1, params, pipeline
+            best_score = mean_f1
+            best_params = params
 
     pd.DataFrame(results).sort_values('cv_f1_mean', ascending=False).to_csv(
         os.path.join(ARTIFACTS_DIR, 'tuning_results.csv'), index=False
     )
     print(f"Best params: {best_params}  |  CV F1: {best_score:.4f}")
+
+    # Tạo lại pipeline với best_params (sạch, chưa fit) để train bên ngoài
+    best_pipeline = Pipeline([
+        ('tfidf', TfidfVectorizer(analyzer='char_wb',
+                                   ngram_range=best_params['tfidf__ngram_range'],
+                                   max_features=best_params['tfidf__max_features'])),
+        ('clf', MultinomialNB(alpha=best_params['clf__alpha'])),
+    ])
     return best_pipeline, best_params
 
 
 def heuristic_score(text: str) -> float:
-    """Phải khớp 100% với hàm trong predictor.py — tách logic chung ra
-    để không lệch giữa lúc huấn luyện meta-model và lúc dùng thực tế."""
+    """Proxy sang hàm trong predictor.py để đảm bảo nhất quán giữa train và predict."""
     from predictor import heuristic_score as _hs
     return _hs(text)
 
 
-def build_meta_features(texts, nb_pipeline, bn_metadata_ready=True):
+def build_meta_features(texts, nb_pipeline):
     """
     Tính 3 score (nb, bn, heuristic) cho từng văn bản — dùng làm input
     cho meta-model (Logistic Regression) học trọng số kết hợp tối ưu.
@@ -96,10 +109,8 @@ def train_meta_model(X_train, y_train, nb_pipeline):
     """
     Huấn luyện Logistic Regression nhỏ trên 3 score (NB, BN, Heuristic)
     để TỰ HỌC trọng số kết hợp tối ưu từ dữ liệu, thay vì gán tay.
-    Dùng cross-validation để tránh overfit trên chính tập train.
     """
     print("   Tính meta-features (nb_score, bn_score, heuristic_score) trên tập train...")
-    # Giới hạn số mẫu để tính meta-feature không quá lâu (BN suy luận từng mẫu khá chậm)
     limit = min(6000, len(X_train))
     idx = np.random.RandomState(42).choice(len(X_train), size=limit, replace=False)
     X_sub = X_train[idx]
