@@ -11,7 +11,11 @@ from report_utils import get_text_stats, evaluate_on_test_set
 
 st.set_page_config(page_title="AI Text Detector", page_icon="🔍", layout="wide")
 
-ARTIFACTS_EXIST = os.path.exists("artifacts/model_nb.pkl")
+ARTIFACTS_EXIST = (
+    os.path.exists("artifacts/model_nb_en.pkl") and
+    os.path.exists("artifacts/model_nb_vi.pkl") and
+    os.path.exists("artifacts/model_bn.pkl")
+)
 
 # ── Helpers ──────────────────────────────────────────────
 
@@ -155,7 +159,7 @@ if analyze_btn:
             result = predict_text(raw_text)
 
         is_ai = result['label'] == "AI Generated"
-        lang_label = "🇻🇳 Tiếng Việt" if result.get('language') == 'vi' else "🇬🇧 Tiếng Anh"
+        lang_label = "🇻🇳 Tiếng Việt" if result.get('language') == 'vi' else "🇺🇸 Tiếng Anh"
         threshold_label = f"Ngưỡng quyết định: {result.get('threshold_used', 0.5)}"
         accent = "#ff4b4b" if is_ai else "#21c354"
         icon = "🤖" if is_ai else "🧑"
@@ -169,11 +173,11 @@ if analyze_btn:
         """, unsafe_allow_html=True)
 
         col1, col2, col3 = st.columns(3)
-        col1.metric("Naive Bayes", f"{result['nb_score']}%",
+        col1.metric("Naive Bayes", f"{result['nb_score']:.2f}%",
                     help="Xác suất AI dựa trên nội dung (TF-IDF n-gram ký tự)")
-        col2.metric("Bayesian Network", f"{result['bn_score']}%",
+        col2.metric("Bayesian Network", f"{result['bn_score']:.2f}%",
                     help="Xác suất AI dựa trên cấu trúc văn bản (length, word_count, sentence_count, avg_word_len)")
-        col3.metric("Heuristic", f"{result['heuristic_score']}%",
+        col3.metric("Heuristic", f"{result['heuristic_score']:.2f}%",
                     help="Tín hiệu bề mặt: độ đều câu, dấu câu, từ dài, thiếu câu ngắn")
 
         st.divider()
