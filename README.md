@@ -31,7 +31,7 @@ CheckAI/
 ├── bayesian_network.py           # Mô hình Mạng Bayes
 ├── data_utils.py                 # Tiền xử lý dữ liệu
 ├── report_utils.py               # Sinh báo cáo
-│
+├── build_dataset_vi.py
 ├── requirements.txt              # Thư viện cần cài đặt
 ├── README.md                     # Tài liệu dự án
 ├── LICENSE

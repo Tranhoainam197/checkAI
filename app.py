@@ -185,7 +185,9 @@ if analyze_btn:
 
         with tab1:
             stats = get_text_stats(raw_text)
-            st.table(pd.Series(stats).rename("Giá trị"))
+            df_stats = pd.Series(stats).rename("Giá trị").to_frame()
+            df_stats["Giá trị"] = df_stats["Giá trị"].astype(int)
+            st.table(df_stats.style.format({"Giá trị": "{:,}"}))
 
         with tab2:
             if line_by_line:
